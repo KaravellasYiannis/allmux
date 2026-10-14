@@ -17,7 +17,7 @@ struct Match
   std::vector<size_t> indices;  // Highlighted chars position
 };
 
-static const std::array entry_styles{
+static constexpr std::array entry_styles{
   std::pair{std::string_view{" SSH "}, Color::Cyan},
   std::pair{std::string_view{" DOC "}, Color::Blue},
   std::pair{std::string_view{" MUX "}, Color::Green},
@@ -36,6 +36,13 @@ selection_color()
 {
   return is_dark_theme() ? Color::Grey30 : Color::RGB(232, 232, 232);
   
+}
+
+static ftxui::Element
+label(Entry entry)
+{
+  auto& [label, label_color] = entry_styles[static_cast<size_t>(entry.kind())];
+  return text(std::string{label}) | color(Color::RGB(0, 0, 0)) | bgcolor(label_color) | bold;
 }
 
 /* I don't think i like the dimming implemetnation */
@@ -188,13 +195,11 @@ main()
     {
       const auto& match = filtered[pos];
       const auto& entry = entries[match.index];
-      const auto& [label, label_color] = entry_styles[static_cast<size_t>(entry.kind())];
       const bool selected =  pos == s_selected;
       const auto style = selected ? bgcolor(selected_color) | bold | focus : nothing;
+
       /* row construction */
-      Elements row{ text(std::string{label}) | color(Color::RGB(0, 0, 0)) | bgcolor(label_color) | bold,
-                    text(" "),
-                    highlighted(entry.display(), match.indices)};
+      Elements row{ label(entry), text(" "), highlighted(entry.display(), match.indices)};
       if (entry.active()) { row.push_back(text("*") | color(Color::Green)); }
       row.push_back(text("  "));
       row.push_back(text(entry.extra) | color(classify_text_color(entry.extra)));
