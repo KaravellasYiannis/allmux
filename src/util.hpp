@@ -5,6 +5,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <array>
+#include <span>
 #include <spawn.h>
 #include <string>
 #include <string_view>
@@ -12,7 +14,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
-#include <algorithm>
 #include <chrono>
 
 #include "logger.hpp"
@@ -150,3 +151,29 @@ toggle_theme()
   buffer << theme;
   return theme;
 }
+
+/* Used to read the active SSH or Docker client's arguments (the pane PID is usually a shell). */
+inline std::vector<std::string>
+pane_process_args(const std::string& pane_pid, const std::string& pane_cmd)
+{
+  if (pane_pid.empty()) { return {}; }
+  std::string process_pid = pane_pid;
+  std::ifstream children("/proc/" + pane_pid + "/task/" + pane_pid + "/children");
+  for (std::string child_pid; children >> child_pid;)
+  {
+    std::ifstream comm("/proc/" + child_pid + "/comm");
+    std::string name;
+    if (std::getline(comm, name) && name == pane_cmd)
+    {
+      process_pid = child_pid;
+      break;
+    }
+  }
+
+  std::ifstream file("/proc/" + process_pid + "/cmdline", std::ios::binary);
+  std::vector<std::string> args;
+  for (std::string arg; std::getline(file, arg, '\0');) { args.push_back(std::move(arg)); }
+  if (args.empty() || fs::path{args.front()}.filename() != pane_cmd) { return {}; }
+  return args;
+}
+

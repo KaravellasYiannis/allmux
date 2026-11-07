@@ -2,9 +2,11 @@
 #include "history.hpp"
 #include "tmux.hpp"
 #include "catalog.hpp"
+#include "util.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <ftxui.hpp>
 #include <thread>
 
@@ -35,7 +37,6 @@ static Color
 selection_color()
 {
   return is_dark_theme() ? Color::Grey30 : Color::RGB(232, 232, 232);
-  
 }
 
 static ftxui::Element
@@ -169,8 +170,9 @@ launch_loader(Entries& current_entries, ScreenInteractive& screen, int& loading,
   });
 }
 
+/* run the ui */
 int
-main()
+run_ui()
 {
   Entries entries;
   auto app = ftxui::App::Fullscreen();
@@ -296,4 +298,91 @@ main()
 
   app.Loop(component);
   return 0;
+}
+
+/* Create a new tmux window based on the active pane state. */
+bool
+smart_new_tmux_pane(std::string pane_cmd, std::string pane_pid, std::string_view pane_current_path)
+{
+  std::vector<std::string> args;
+  if (pane_cmd == "ssh" || pane_cmd == "docker")
+  { /* get the arguments of the runing process cmd */
+    args = pane_process_args(pane_pid, pane_cmd);
+  }
+
+  /* Only repeat interactive Docker shells, never docker run or arbitrary commands. */
+  if (pane_cmd == "docker" &&
+      !(args.size() == 5 && args[1] == "exec" &&
+        (args[2] == "-it" || args[2] == "-ti") &&
+        (args[4] == "bash" || args[4] == "sh" || args[4] == "zsh" || args[4] == "fish")))
+  {
+    args.clear();
+  }
+
+  /* prepare the new pane command */
+  std::vector<std::string_view> cmd{"tmux", "new-window", "-c", pane_current_path};
+  for (const auto& arg : args) { cmd.push_back(arg); }
+  return run_command(cmd).exit_code == 0;
+}
+
+std::string
+short_pwd(std::string_view pwd)
+{
+  std::string result{};
+  auto home = home_dir().string();
+  if (!home.empty() && pwd.starts_with(home) &&
+      (pwd.size() == home.size() || pwd[home.size()] == '/'))
+  { /* replace $HOME/ with ~/ */
+    result += "~/";
+    pwd.remove_prefix(home.size());
+    if (pwd.starts_with('/')) { pwd.remove_prefix(1); }
+  }
+  else if (pwd.starts_with('/'))
+  {
+    result += '/';
+    pwd.remove_prefix(1);
+  }
+
+  while (!pwd.empty())
+  {
+    if (auto end = pwd.find('/'); end != std::string_view::npos)
+    {
+      auto dir = pwd.substr(0, end);
+      if (!dir.empty())
+      {
+        /* show 2 chars if the directory is hidden */
+        if (dir[0] == '.')  { result += dir.substr(0, 2); }
+        else                { result += dir[0]; }
+      }
+      pwd.remove_prefix(end + 1);
+      result += '/';
+    }
+    else
+    {
+      result += pwd;
+      break;
+    }
+  }
+
+  return result;
+}
+
+int
+main(int argc, char* argv[])
+{
+  if (argc == 5 && std::string_view{argv[1]} == "new-pane")
+  {
+    return smart_new_tmux_pane(argv[2], argv[3], argv[4]) ? 0 : 1;
+  }
+  if (argc == 3 && std::string_view{argv[1]} == "path") 
+  {
+    std::puts(short_pwd(argv[2]).c_str());
+    return 0;
+  }
+  if (argc != 1)
+  {
+    std::fprintf(stderr, "Usage: allmux [--new-window PANE_COMMAND PANE_PID PANE_PATH]\n");
+    return 1;
+  }
+  return run_ui();
 }
