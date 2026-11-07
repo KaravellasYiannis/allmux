@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdio>
 #include <ftxui.hpp>
+#include <string_view>
 #include <thread>
 
 using namespace ftxui;
@@ -300,13 +301,14 @@ run_ui()
   return 0;
 }
 
-/* Create a new tmux window based on the active pane state. */
+enum class PaneAction { Window, SplitHorizontal, SplitVertical };
+/* Create a new tmux window or split based on the active pane state. */
 bool
-smart_new_tmux_pane(std::string pane_cmd, std::string pane_pid, std::string_view pane_current_path)
+smart_new_tmux_pane(std::string pane_cmd, std::string pane_pid, std::string_view pane_current_path, PaneAction action)
 {
   std::vector<std::string> args;
   if (pane_cmd == "ssh" || pane_cmd == "docker")
-  { /* get the arguments of the runing process cmd */
+  { /* Get the running process's command arguments. */
     args = pane_process_args(pane_pid, pane_cmd);
   }
 
@@ -318,9 +320,14 @@ smart_new_tmux_pane(std::string pane_cmd, std::string pane_pid, std::string_view
   {
     args.clear();
   }
-
-  /* prepare the new pane command */
-  std::vector<std::string_view> cmd{"tmux", "new-window", "-c", pane_current_path};
+  std::vector<std::string_view> cmd{"tmux"};
+  switch (action)
+  {
+    case PaneAction::Window: cmd.push_back("new-window"); break;
+    case PaneAction::SplitHorizontal: cmd.insert(cmd.end(), {"split-window", "-h"}); break;
+    case PaneAction::SplitVertical: cmd.insert(cmd.end(), {"split-window", "-v"}); break;
+  }
+  cmd.insert(cmd.end(), {"-c", pane_current_path});
   for (const auto& arg : args) { cmd.push_back(arg); }
   return run_command(cmd).exit_code == 0;
 }
@@ -370,9 +377,21 @@ short_pwd(std::string_view pwd)
 int
 main(int argc, char* argv[])
 {
-  if (argc == 5 && std::string_view{argv[1]} == "new-pane")
+  if (argc == 5)
   {
-    return smart_new_tmux_pane(argv[2], argv[3], argv[4]) ? 0 : 1;
+    const std::string_view cmd{argv[1]};
+    if (cmd == "new-pane")
+    {
+      return smart_new_tmux_pane(argv[2], argv[3], argv[4], PaneAction::Window) ? 0 : 1;
+    }
+    if (cmd == "split-horizontal")
+    {
+      return smart_new_tmux_pane(argv[2], argv[3], argv[4], PaneAction::SplitHorizontal) ? 0 : 1;
+    }
+    if (cmd == "split-vertical")
+    {
+      return smart_new_tmux_pane(argv[2], argv[3], argv[4], PaneAction::SplitVertical) ? 0 : 1;
+    }
   }
   if (argc == 3 && std::string_view{argv[1]} == "path") 
   {
@@ -381,7 +400,12 @@ main(int argc, char* argv[])
   }
   if (argc != 1)
   {
-    std::fprintf(stderr, "Usage: allmux [--new-window PANE_COMMAND PANE_PID PANE_PATH]\n");
+    std::fprintf(stderr,
+                 "Usage: allmux\n"
+                 "       allmux path PATH\n"
+                 "       allmux new-pane PANE_COMMAND PANE_PID PANE_PATH\n"
+                 "       allmux split-horizontal PANE_COMMAND PANE_PID PANE_PATH\n"
+                 "       allmux split-vertical PANE_COMMAND PANE_PID PANE_PATH\n");
     return 1;
   }
   return run_ui();
