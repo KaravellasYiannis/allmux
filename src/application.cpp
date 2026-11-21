@@ -214,7 +214,7 @@ run_ui()
     if (loading != 0) { rows.push_back(text("Loading Entries") | dim); }
     if (rows.empty())   { rows.push_back(text("No matching entries") | dim); }
 
-    Elements search{text("> ") | bold, text(s_query), text(" ") | inverted};
+    Elements search{text("> ") | bold, text(s_query), text(" ") | focusCursorBlock};
     if (!s_status.empty())
     {
       search.push_back(text("  " + s_status) | color(Color::Yellow));
